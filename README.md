@@ -22,3 +22,7 @@ Interactive full-stack web application displaying Epic Pass owned and partner sk
 ## Railway Single-Service Deployment
 
 The root `Dockerfile` builds the Vite bundle in Stage 1 (`node:22-alpine`) and runs FastAPI + Uvicorn in Stage 2 (`python:3.12-slim`) bound to `0.0.0.0:${PORT:-8000}`.
+
+### Persistent Volume (SQLite)
+- Mount a Railway volume at `/data` (or set `DB_PATH=/your/mount/epic_snow.db`).
+- FastAPI automatically initializes SQLite in WAL mode at startup and persists the 15-minute Liftie cache across restarts and redeploys.

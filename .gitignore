@@ -3,6 +3,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+data/
+*.db
+*.db-wal
+*.db-shm
 
 # Node / Vite
 frontend/node_modules/
