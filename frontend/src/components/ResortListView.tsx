@@ -4,6 +4,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   CheckCircle2,
+  Moon,
   RefreshCw,
   XCircle,
 } from 'lucide-react';
@@ -247,13 +248,23 @@ export const ResortListView: React.FC<ResortListViewProps> = ({
                       <div className="flex items-center gap-2.5">
                         <span
                           className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                            isOpen
+                            isOpen && status?.closedForDay
+                              ? 'bg-indigo-500/15 text-indigo-300'
+                              : isOpen
                               ? 'bg-emerald-500/15 text-emerald-400'
                               : 'bg-slate-800 text-slate-500'
                           }`}
-                          title={isOpen ? 'Open' : 'Closed'}
+                          title={
+                            isOpen && status?.closedForDay
+                              ? "Closed for day (showing today's stats)"
+                              : isOpen
+                              ? 'Open'
+                              : 'Closed'
+                          }
                         >
-                          {isOpen ? (
+                          {isOpen && status?.closedForDay ? (
+                            <Moon className="h-3.5 w-3.5" />
+                          ) : isOpen ? (
                             <CheckCircle2 className="h-3.5 w-3.5" />
                           ) : (
                             <XCircle className="h-3.5 w-3.5" />

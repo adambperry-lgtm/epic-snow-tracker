@@ -71,4 +71,6 @@ export interface ResortStatus {
   snow7dCm: number;
   source: 'onthesnow-live' | 'liftie-live' | 'db-synced' | 'seeded';
   updatedAt: string;
+  reportDate?: string | null;
+  closedForDay?: boolean;
 }

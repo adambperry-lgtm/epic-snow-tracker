@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -68,6 +69,50 @@ ONTHESNOW_PATHS: dict[str, str] = {
     "rusutsu": "hokkaido/rusutsu-resort",
 }
 
+RESORT_TIMEZONES: dict[str, str] = {
+    # Rockies (Mountain)
+    "vail": "America/Denver",
+    "beaver-creek": "America/Denver",
+    "breckenridge": "America/Denver",
+    "keystone": "America/Denver",
+    "crested-butte": "America/Denver",
+    "telluride": "America/Denver",
+    "park-city": "America/Denver",
+    "fernie": "America/Edmonton",
+    "kicking-horse": "America/Edmonton",
+    "kimberley": "America/Edmonton",
+    "nakiska": "America/Edmonton",
+    # West / Pacific
+    "heavenly": "America/Los_Angeles",
+    "northstar": "America/Los_Angeles",
+    "kirkwood": "America/Los_Angeles",
+    "stevens-pass": "America/Los_Angeles",
+    "whistler-blackcomb": "America/Vancouver",
+    # Midwest (Central)
+    "afton-alps": "America/Chicago",
+    "wilmot": "America/Chicago",
+    "hidden-valley-mo": "America/Chicago",
+    "snow-creek": "America/Chicago",
+    # Europe & Japan
+    "andermatt-sedrun-disentis": "Europe/Zurich",
+    "crans-montana": "Europe/Zurich",
+    "verbier-4-vallees": "Europe/Zurich",
+    "les-3-vallees": "Europe/Paris",
+    "skirama-dolomiti": "Europe/Rome",
+    "ski-arlberg": "Europe/Vienna",
+    "zillertal": "Europe/Vienna",
+    "solden": "Europe/Vienna",
+    "silvretta-montafon": "Europe/Vienna",
+    "saalbach-zell-am-see": "Europe/Vienna",
+    "hakuba-valley": "Asia/Tokyo",
+    "rusutsu": "Asia/Tokyo",
+}
+
+
+def get_resort_local_date(resort_id: str) -> str:
+    tz_name = RESORT_TIMEZONES.get(resort_id, "America/New_York")
+    return datetime.now(ZoneInfo(tz_name)).date().isoformat()
+
 
 def resolve_db_path() -> Path:
     env_path = os.environ.get("DB_PATH")
@@ -112,10 +157,20 @@ def init_db() -> None:
                 trails_total INTEGER NOT NULL,
                 base_depth_cm INTEGER NOT NULL,
                 source TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                report_date TEXT,
+                closed_for_day INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        for col_sql in (
+            "ALTER TABLE resort_status ADD COLUMN report_date TEXT",
+            "ALTER TABLE resort_status ADD COLUMN closed_for_day INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                conn.execute(col_sql)
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
 
 
@@ -185,15 +240,47 @@ def upsert_resort_status(
     base_depth_cm: int,
     source: str,
     updated_at: str,
-) -> None:
+) -> dict[str, Any]:
+    today_local = get_resort_local_date(resort_id)
+    closed_for_day = False
+
     with get_db_connection() as conn:
+        existing = conn.execute(
+            """
+            SELECT is_open, lifts_open, lifts_total, trails_open, trails_total,
+                   base_depth_cm, report_date, closed_for_day
+            FROM resort_status
+            WHERE resort_id = ?
+            """,
+            (resort_id,),
+        ).fetchone()
+
+        # If the mountain was already open today (local resort date) and an automated
+        # evening/night check sees 0 lifts/trails, keep today's operating stats and
+        # mark closed_for_day=True until the resort's local calendar date rolls over.
+        if (
+            source != "db-synced"
+            and existing is not None
+            and existing["report_date"] == today_local
+            and bool(existing["is_open"])
+            and not is_open
+        ):
+            is_open = True
+            lifts_open = existing["lifts_open"]
+            lifts_total = existing["lifts_total"] or lifts_total
+            trails_open = existing["trails_open"]
+            trails_total = existing["trails_total"] or trails_total
+            base_depth_cm = base_depth_cm or existing["base_depth_cm"]
+            closed_for_day = True
+
         conn.execute(
             """
             INSERT INTO resort_status (
                 resort_id, is_open, lifts_open, lifts_total,
-                trails_open, trails_total, base_depth_cm, source, updated_at
+                trails_open, trails_total, base_depth_cm, source,
+                updated_at, report_date, closed_for_day
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(resort_id) DO UPDATE SET
                 is_open = excluded.is_open,
                 lifts_open = excluded.lifts_open,
@@ -202,7 +289,9 @@ def upsert_resort_status(
                 trails_total = excluded.trails_total,
                 base_depth_cm = excluded.base_depth_cm,
                 source = excluded.source,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                report_date = excluded.report_date,
+                closed_for_day = excluded.closed_for_day
             """,
             (
                 resort_id,
@@ -214,9 +303,25 @@ def upsert_resort_status(
                 base_depth_cm,
                 source,
                 updated_at,
+                today_local,
+                int(closed_for_day),
             ),
         )
         conn.commit()
+
+    return {
+        "resortId": resort_id,
+        "isOpen": is_open,
+        "liftsOpen": lifts_open,
+        "liftsTotal": lifts_total,
+        "trailsOpen": trails_open,
+        "trailsTotal": trails_total,
+        "baseDepthCm": base_depth_cm,
+        "source": source,
+        "updatedAt": updated_at,
+        "reportDate": today_local,
+        "closedForDay": closed_for_day,
+    }
 
 
 def read_cached_lift(slug: str) -> tuple[float, dict[str, Any]] | None:
@@ -257,6 +362,13 @@ async def get_public_config() -> dict[str, str]:
     return {"cartoApiKey": carto_key}
 
 
+STATUS_SELECT_COLS = """
+    resort_id, is_open, lifts_open, lifts_total,
+    trails_open, trails_total, base_depth_cm, source,
+    updated_at, report_date, closed_for_day
+"""
+
+
 def _row_to_status_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "resortId": row["resort_id"],
@@ -268,6 +380,8 @@ def _row_to_status_dict(row: sqlite3.Row) -> dict[str, Any]:
         "baseDepthCm": row["base_depth_cm"],
         "source": row["source"],
         "updatedAt": row["updated_at"],
+        "reportDate": row["report_date"],
+        "closedForDay": bool(row["closed_for_day"]),
     }
 
 
@@ -275,11 +389,7 @@ def _row_to_status_dict(row: sqlite3.Row) -> dict[str, Any]:
 async def get_all_resort_statuses() -> JSONResponse:
     with get_db_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT resort_id, is_open, lifts_open, lifts_total,
-                   trails_open, trails_total, base_depth_cm, source, updated_at
-            FROM resort_status
-            """
+            f"SELECT {STATUS_SELECT_COLS} FROM resort_status"
         ).fetchall()
 
     if not rows:
@@ -304,11 +414,15 @@ async def sync_all_onthesnow_statuses() -> JSONResponse:
                 now_iso = datetime.now(timezone.utc).isoformat()
                 with get_db_connection() as conn:
                     existing = conn.execute(
-                        "SELECT source, base_depth_cm FROM resort_status WHERE resort_id = ?",
+                        "SELECT source, base_depth_cm, report_date FROM resort_status WHERE resort_id = ?",
                         (resort_id,),
                     ).fetchone()
-                # Preserve manual db-synced overrides
-                if existing and existing["source"] == "db-synced":
+                # Preserve manual db-synced overrides for the same local day
+                if (
+                    existing
+                    and existing["source"] == "db-synced"
+                    and existing["report_date"] == get_resort_local_date(resort_id)
+                ):
                     return
                 upsert_resort_status(
                     resort_id=resort_id,
@@ -341,11 +455,7 @@ async def sync_all_onthesnow_statuses() -> JSONResponse:
 
     with get_db_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT resort_id, is_open, lifts_open, lifts_total,
-                   trails_open, trails_total, base_depth_cm, source, updated_at
-            FROM resort_status
-            """
+            f"SELECT {STATUS_SELECT_COLS} FROM resort_status"
         ).fetchall()
     return JSONResponse(content={r["resort_id"]: _row_to_status_dict(r) for r in rows})
 
@@ -354,17 +464,14 @@ async def sync_all_onthesnow_statuses() -> JSONResponse:
 async def get_resort_status(resort_id: str) -> JSONResponse:
     with get_db_connection() as conn:
         row = conn.execute(
-            """
-            SELECT resort_id, is_open, lifts_open, lifts_total,
-                   trails_open, trails_total, base_depth_cm, source, updated_at
-            FROM resort_status
-            WHERE resort_id = ?
-            """,
+            f"SELECT {STATUS_SELECT_COLS} FROM resort_status WHERE resort_id = ?",
             (resort_id,),
         ).fetchone()
 
-    # If manually synced ("db-synced") or freshly cached live ("onthesnow-live" < 15m), return it
-    if row is not None:
+    today_local = get_resort_local_date(resort_id)
+
+    # Return cached status if same local day AND (manual db-synced OR < 15m old)
+    if row is not None and row["report_date"] == today_local:
         is_manual = row["source"] == "db-synced"
         is_fresh = False
         try:
@@ -376,17 +483,7 @@ async def get_resort_status(resort_id: str) -> JSONResponse:
 
         if is_manual or is_fresh:
             return JSONResponse(
-                content={
-                    "resortId": row["resort_id"],
-                    "isOpen": bool(row["is_open"]),
-                    "liftsOpen": row["lifts_open"],
-                    "liftsTotal": row["lifts_total"],
-                    "trailsOpen": row["trails_open"],
-                    "trailsTotal": row["trails_total"],
-                    "baseDepthCm": row["base_depth_cm"],
-                    "source": row["source"],
-                    "updatedAt": row["updated_at"],
-                },
+                content=_row_to_status_dict(row),
                 headers={"X-Cache": "HIT"},
             )
 
@@ -411,7 +508,7 @@ async def get_resort_status(resort_id: str) -> JSONResponse:
                 parsed = parse_onthesnow_html(resp.text)
                 if parsed is not None:
                     now_iso = datetime.now(timezone.utc).isoformat()
-                    upsert_resort_status(
+                    saved = upsert_resort_status(
                         resort_id=resort_id,
                         is_open=parsed["isOpen"],
                         lifts_open=parsed["liftsOpen"],
@@ -423,32 +520,16 @@ async def get_resort_status(resort_id: str) -> JSONResponse:
                         updated_at=now_iso,
                     )
                     return JSONResponse(
-                        content={
-                            "resortId": resort_id,
-                            **parsed,
-                            "baseDepthCm": row["base_depth_cm"] if row else 0,
-                            "source": "onthesnow-live",
-                            "updatedAt": now_iso,
-                        },
+                        content=saved,
                         headers={"X-Cache": "MISS"},
                     )
         except httpx.RequestError:
             pass
 
-    # If stale row exists, return it rather than 404
-    if row is not None:
+    # If stale row exists from today, return it rather than 404
+    if row is not None and row["report_date"] == today_local:
         return JSONResponse(
-            content={
-                "resortId": row["resort_id"],
-                "isOpen": bool(row["is_open"]),
-                "liftsOpen": row["lifts_open"],
-                "liftsTotal": row["lifts_total"],
-                "trailsOpen": row["trails_open"],
-                "trailsTotal": row["trails_total"],
-                "baseDepthCm": row["base_depth_cm"],
-                "source": row["source"],
-                "updatedAt": row["updated_at"],
-            },
+            content=_row_to_status_dict(row),
             headers={"X-Cache": "STALE"},
         )
 
@@ -460,7 +541,7 @@ async def put_resort_status(resort_id: str, body: ResortStatusUpdate) -> JSONRes
     now_iso = datetime.now(timezone.utc).isoformat()
     lifts_open = min(body.lifts_open, body.lifts_total)
     trails_open = min(body.trails_open, body.trails_total)
-    upsert_resort_status(
+    saved = upsert_resort_status(
         resort_id=resort_id,
         is_open=body.is_open,
         lifts_open=lifts_open,
@@ -471,20 +552,7 @@ async def put_resort_status(resort_id: str, body: ResortStatusUpdate) -> JSONRes
         source="db-synced",
         updated_at=now_iso,
     )
-
-    return JSONResponse(
-        content={
-            "resortId": resort_id,
-            "isOpen": body.is_open,
-            "liftsOpen": lifts_open,
-            "liftsTotal": body.lifts_total,
-            "trailsOpen": trails_open,
-            "trailsTotal": body.trails_total,
-            "baseDepthCm": body.base_depth_cm,
-            "source": "db-synced",
-            "updatedAt": now_iso,
-        }
-    )
+    return JSONResponse(content=saved)
 
 
 @app.get("/api/lifts/{slug}")

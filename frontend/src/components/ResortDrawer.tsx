@@ -13,6 +13,7 @@ import {
   Radio,
   Pencil,
   Check,
+  Moon,
 } from 'lucide-react';
 import type {
   Resort,
@@ -153,17 +154,25 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
 
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                isOpen
+                isOpen && status?.closedForDay
+                  ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30'
+                  : isOpen
                   ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
                   : 'bg-slate-800 text-slate-400 ring-1 ring-slate-700'
               }`}
             >
-              {isOpen ? (
+              {isOpen && status?.closedForDay ? (
+                <Moon className="h-3 w-3" />
+              ) : isOpen ? (
                 <CheckCircle2 className="h-3 w-3" />
               ) : (
                 <XCircle className="h-3 w-3" />
               )}
-              {isOpen ? 'Open' : 'Closed'}
+              {isOpen && status?.closedForDay
+                ? "Closed for Day · Today's Stats"
+                : isOpen
+                ? 'Open'
+                : 'Closed'}
             </span>
           </div>
 
