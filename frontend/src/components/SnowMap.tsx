@@ -60,26 +60,26 @@ function createResortIcon(
   const isPartner = resort.accessType === 'partner';
 
   const bgColors = {
-    none: '#334155',
-    moderate: '#0891b2',
-    heavy: '#3b82f6',
+    none: '#27272a',
+    moderate: '#0284c7',
+    heavy: '#2563eb',
   };
 
   const borderColors = {
-    none: isPartner ? '#f59e0b' : '#94a3b8',
-    moderate: isPartner ? '#fbbf24' : '#22d3ee',
-    heavy: isPartner ? '#fcd34d' : '#a5b4fc',
+    none: isPartner ? '#ff7a59' : '#a1a1aa',
+    moderate: isPartner ? '#ff7a59' : '#38bdf8',
+    heavy: isPartner ? '#ff947a' : '#93c5fd',
   };
 
   const glowStyle =
     tier === 'heavy'
-      ? 'box-shadow: 0 0 14px rgba(59, 130, 246, 0.75);'
+      ? 'box-shadow: 0 0 14px rgba(37, 99, 235, 0.8);'
       : tier === 'moderate'
-      ? 'box-shadow: 0 0 10px rgba(34, 211, 238, 0.55);'
-      : 'box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);';
+      ? 'box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);'
+      : 'box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);';
 
   const selectedRing = isSelected
-    ? 'outline: 2.5px solid #ffffff; outline-offset: 2px; transform: scale(1.2);'
+    ? 'outline: 2.5px solid #ff4b2b; outline-offset: 2px; transform: scale(1.22);'
     : '';
 
   const shapeStyle = isPartner
@@ -92,19 +92,19 @@ function createResortIcon(
   const labelHtml = snowLabel
     ? `<span style="
         position: absolute;
-        left: 18px;
+        left: 19px;
         top: -3px;
-        background: rgba(15, 23, 42, 0.92);
-        color: ${tier === 'heavy' ? '#93c5fd' : '#67e8f9'};
-        border: 1px solid ${tier === 'heavy' ? 'rgba(99, 102, 241, 0.6)' : 'rgba(34, 211, 238, 0.45)'};
+        background: rgba(15, 17, 22, 0.94);
+        color: ${tier === 'heavy' ? '#93c5fd' : '#7dd3fc'};
+        border: 1px solid rgba(255, 255, 255, 0.14);
         font-family: 'JetBrains Mono', monospace;
         font-size: 10px;
         font-weight: 700;
-        padding: 1px 4px;
-        border-radius: 4px;
+        padding: 1px 5px;
+        border-radius: 9999px;
         white-space: nowrap;
         pointer-events: none;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.65);
       ">${snowLabel}</span>`
     : '';
 
@@ -175,7 +175,7 @@ export const SnowMap: React.FC<SnowMapProps> = ({
 
   return (
     <div className="relative h-full w-full flex-1">
-      <div className="absolute bottom-5 left-4 z-[800] flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-900/90 p-1 shadow-xl backdrop-blur-md">
+      <div className="absolute bottom-5 left-4 z-[800] flex items-center gap-1 rounded-full border border-white/10 bg-[#0f1116]/92 p-1 shadow-2xl backdrop-blur-xl">
         {(
           [
             { id: 'dark', label: 'Dark Map' },
@@ -187,10 +187,10 @@ export const SnowMap: React.FC<SnowMapProps> = ({
             key={item.id}
             type="button"
             onClick={() => setMapStyle(item.id)}
-            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
               mapStyle === item.id
-                ? 'bg-sky-500 text-slate-950 font-semibold'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                ? 'bg-white text-[#08090c] shadow-sm'
+                : 'text-zinc-400 hover:text-white'
             }`}
           >
             {item.label}
@@ -241,27 +241,27 @@ export const SnowMap: React.FC<SnowMapProps> = ({
               offset={[0, -10]}
               className="alpine-tooltip"
             >
-              <div className="min-w-[140px]">
+              <div className="min-w-[155px]">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-white">
+                  <span className="font-display text-xs font-bold text-white">
                     {resort.name}
                   </span>
                   <span
-                    className={`rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
                       resort.accessType === 'unlimited'
                         ? 'bg-sky-500/20 text-sky-300'
-                        : 'bg-amber-500/20 text-amber-300'
+                        : 'bg-[#ff4b2b]/20 text-[#ff7a59]'
                     }`}
                   >
                     {resort.accessLabel}
                   </span>
                 </div>
-                <div className="mt-0.5 text-[11px] text-slate-400">
+                <div className="mt-0.5 text-[11px] text-zinc-400">
                   {resort.location}
                 </div>
-                <div className="mt-1 flex items-center justify-between border-t border-slate-700/70 pt-1 text-[11px]">
-                  <span className="text-slate-400">48h Forecast:</span>
-                  <span className="font-mono-tabular font-semibold text-cyan-300">
+                <div className="mt-1.5 flex items-center justify-between border-t border-white/10 pt-1.5 text-[11px]">
+                  <span className="text-zinc-400">48h Forecast</span>
+                  <span className="font-mono-tabular font-bold text-sky-300">
                     {formatSnowShort(snow48hCm, units)}
                   </span>
                 </div>
