@@ -281,6 +281,10 @@ async def get_all_resort_statuses() -> JSONResponse:
             FROM resort_status
             """
         ).fetchall()
+
+    if not rows:
+        return await sync_all_onthesnow_statuses()
+
     return JSONResponse(content={r["resort_id"]: _row_to_status_dict(r) for r in rows})
 
 
@@ -335,7 +339,15 @@ async def sync_all_onthesnow_statuses() -> JSONResponse:
             *(fetch_one(client, rid, path) for rid, path in ONTHESNOW_PATHS.items())
         )
 
-    return await get_all_resort_statuses()
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT resort_id, is_open, lifts_open, lifts_total,
+                   trails_open, trails_total, base_depth_cm, source, updated_at
+            FROM resort_status
+            """
+        ).fetchall()
+    return JSONResponse(content={r["resort_id"]: _row_to_status_dict(r) for r in rows})
 
 
 @app.get("/api/resorts/{resort_id}/status")

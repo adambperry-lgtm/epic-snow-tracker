@@ -1,85 +1,5 @@
 import type { Resort, ResortForecast, ResortStatus } from '../types/resort';
 
-/**
- * Seeded seasonal defaults for resorts not covered by Liftie API
- * or without a saved status in the persistent SQLite database.
- */
-interface SeededResortMetrics {
-  isOpen: boolean;
-  openLiftRatio: number;
-  openTrailRatio: number;
-  baseDepthCm: number;
-}
-
-const SEEDED_METRICS_BY_SUBREGION: Record<string, SeededResortMetrics> = {
-  Rockies: {
-    isOpen: true,
-    openLiftRatio: 0.72,
-    openTrailRatio: 0.65,
-    baseDepthCm: 112,
-  },
-  'West & Tahoe': {
-    isOpen: true,
-    openLiftRatio: 0.65,
-    openTrailRatio: 0.58,
-    baseDepthCm: 95,
-  },
-  'Pacific Northwest & BC': {
-    isOpen: true,
-    openLiftRatio: 0.78,
-    openTrailRatio: 0.71,
-    baseDepthCm: 138,
-  },
-  Northeast: {
-    isOpen: true,
-    openLiftRatio: 0.55,
-    openTrailRatio: 0.46,
-    baseDepthCm: 64,
-  },
-  'Mid-Atlantic': {
-    isOpen: false,
-    openLiftRatio: 0,
-    openTrailRatio: 0,
-    baseDepthCm: 25,
-  },
-  Midwest: {
-    isOpen: false,
-    openLiftRatio: 0,
-    openTrailRatio: 0,
-    baseDepthCm: 20,
-  },
-  'Canadian Rockies & Quebec': {
-    isOpen: true,
-    openLiftRatio: 0.68,
-    openTrailRatio: 0.62,
-    baseDepthCm: 105,
-  },
-  'Swiss Alps': {
-    isOpen: true,
-    openLiftRatio: 0.74,
-    openTrailRatio: 0.68,
-    baseDepthCm: 128,
-  },
-  'French & Italian Alps': {
-    isOpen: true,
-    openLiftRatio: 0.76,
-    openTrailRatio: 0.70,
-    baseDepthCm: 135,
-  },
-  'Austrian Alps': {
-    isOpen: true,
-    openLiftRatio: 0.79,
-    openTrailRatio: 0.74,
-    baseDepthCm: 142,
-  },
-  Japan: {
-    isOpen: true,
-    openLiftRatio: 0.64,
-    openTrailRatio: 0.59,
-    baseDepthCm: 145,
-  },
-};
-
 interface LiftieResponse {
   lifts?: {
     status?: Record<string, string>;
@@ -103,39 +23,16 @@ export function getSeededResortStatus(
   resort: Resort,
   forecast?: ResortForecast
 ): ResortStatus {
-  const defaults = SEEDED_METRICS_BY_SUBREGION[resort.subRegion] ?? {
-    isOpen: resort.typicalSeasonOpen,
-    openLiftRatio: 0.6,
-    openTrailRatio: 0.55,
-    baseDepthCm: 80,
-  };
-
-  const isOpen = resort.typicalSeasonOpen && defaults.isOpen;
-  const liftsOpen = isOpen
-    ? Math.max(1, Math.round(resort.totalLifts * defaults.openLiftRatio))
-    : 0;
-  const trailsOpen = isOpen
-    ? Math.max(1, Math.round(resort.totalTrails * defaults.openTrailRatio))
-    : 0;
-
   const snow24hCm = forecast?.snowfall24hCm ?? 0;
   const snow7dCm = forecast?.snowfall7dCm ?? 0;
-
-  // Prefer live Open-Meteo snow_depth when non-zero; otherwise fall back to regional estimate
-  const liveSnowDepth = forecast?.snowDepthCm;
-  const baseDepthCm =
-    typeof liveSnowDepth === 'number' && liveSnowDepth > 0
-      ? liveSnowDepth
-      : isOpen
-      ? Math.round(defaults.baseDepthCm + snow7dCm * 0.4)
-      : Math.round(snow7dCm * 0.3);
+  const baseDepthCm = forecast?.snowDepthCm ?? 0;
 
   return {
     resortId: resort.id,
-    isOpen,
-    liftsOpen,
+    isOpen: false,
+    liftsOpen: 0,
     liftsTotal: resort.totalLifts,
-    trailsOpen,
+    trailsOpen: 0,
     trailsTotal: resort.totalTrails,
     baseDepthCm,
     snow24hCm,
