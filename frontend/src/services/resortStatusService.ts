@@ -1,0 +1,223 @@
+import type { Resort, ResortForecast, ResortStatus } from '../types/resort';
+
+/**
+ * Seeded seasonal defaults for resorts not covered by Liftie API
+ * (or as a fallback when Liftie is unreachable / CORS-restricted).
+ * Clearly isolated here so a custom scraper or feed can be wired in later.
+ */
+interface SeededResortMetrics {
+  isOpen: boolean;
+  openLiftRatio: number;
+  openTrailRatio: number;
+  baseDepthCm: number;
+}
+
+const SEEDED_METRICS_BY_SUBREGION: Record<string, SeededResortMetrics> = {
+  Rockies: {
+    isOpen: true,
+    openLiftRatio: 0.72,
+    openTrailRatio: 0.65,
+    baseDepthCm: 112,
+  },
+  'West & Tahoe': {
+    isOpen: true,
+    openLiftRatio: 0.65,
+    openTrailRatio: 0.58,
+    baseDepthCm: 95,
+  },
+  'Pacific Northwest & BC': {
+    isOpen: true,
+    openLiftRatio: 0.78,
+    openTrailRatio: 0.71,
+    baseDepthCm: 138,
+  },
+  Northeast: {
+    isOpen: true,
+    openLiftRatio: 0.55,
+    openTrailRatio: 0.46,
+    baseDepthCm: 64,
+  },
+  'Mid-Atlantic': {
+    isOpen: false,
+    openLiftRatio: 0,
+    openTrailRatio: 0,
+    baseDepthCm: 25,
+  },
+  Midwest: {
+    isOpen: false,
+    openLiftRatio: 0,
+    openTrailRatio: 0,
+    baseDepthCm: 20,
+  },
+  'Canadian Rockies & Quebec': {
+    isOpen: true,
+    openLiftRatio: 0.68,
+    openTrailRatio: 0.62,
+    baseDepthCm: 105,
+  },
+  'Swiss Alps': {
+    isOpen: true,
+    openLiftRatio: 0.74,
+    openTrailRatio: 0.68,
+    baseDepthCm: 128,
+  },
+  'French & Italian Alps': {
+    isOpen: true,
+    openLiftRatio: 0.76,
+    openTrailRatio: 0.70,
+    baseDepthCm: 135,
+  },
+  'Austrian Alps': {
+    isOpen: true,
+    openLiftRatio: 0.79,
+    openTrailRatio: 0.74,
+    baseDepthCm: 142,
+  },
+  Japan: {
+    isOpen: true,
+    openLiftRatio: 0.64,
+    openTrailRatio: 0.59,
+    baseDepthCm: 145,
+  },
+};
+
+interface LiftieResponse {
+  lifts?: {
+    status?: Record<string, string>;
+    stats?: {
+      open?: number;
+      hold?: number;
+      scheduled?: number;
+      closed?: number;
+    };
+  };
+  open?: boolean;
+  timestamp?: {
+    lifts?: number;
+  };
+}
+
+const liftieCache = new Map<string, { data: LiftieResponse; fetchedAt: number }>();
+const LIFTIE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+export function getSeededResortStatus(
+  resort: Resort,
+  forecast?: ResortForecast
+): ResortStatus {
+  const defaults = SEEDED_METRICS_BY_SUBREGION[resort.subRegion] ?? {
+    isOpen: resort.typicalSeasonOpen,
+    openLiftRatio: 0.6,
+    openTrailRatio: 0.55,
+    baseDepthCm: 80,
+  };
+
+  const isOpen = resort.typicalSeasonOpen && defaults.isOpen;
+  const liftsOpen = isOpen
+    ? Math.max(1, Math.round(resort.totalLifts * defaults.openLiftRatio))
+    : 0;
+  const trailsOpen = isOpen
+    ? Math.max(1, Math.round(resort.totalTrails * defaults.openTrailRatio))
+    : 0;
+
+  // Blend in live Open-Meteo recent snow if available
+  const snow24hCm = forecast?.snowfall24hCm ?? 0;
+  const snow7dCm = forecast?.snowfall7dCm ?? 0;
+  const baseDepthCm = isOpen
+    ? Math.round(defaults.baseDepthCm + snow7dCm * 0.4)
+    : Math.round(snow7dCm * 0.3);
+
+  return {
+    resortId: resort.id,
+    isOpen,
+    liftsOpen,
+    liftsTotal: resort.totalLifts,
+    trailsOpen,
+    trailsTotal: resort.totalTrails,
+    baseDepthCm,
+    snow24hCm,
+    snow7dCm,
+    source: 'seeded',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetches live lift counts from the open-source Liftie API for supported North American resorts.
+ * Falls back cleanly to `getSeededResortStatus` if unsupported or unreachable.
+ */
+export async function fetchResortStatus(
+  resort: Resort,
+  forecast?: ResortForecast
+): Promise<ResortStatus> {
+  const fallback = getSeededResortStatus(resort, forecast);
+
+  if (!resort.liftieSlug) {
+    return fallback;
+  }
+
+  try {
+    const cached = liftieCache.get(resort.liftieSlug);
+    let data: LiftieResponse;
+
+    if (cached && Date.now() - cached.fetchedAt < LIFTIE_CACHE_TTL_MS) {
+      data = cached.data;
+    } else {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`/api/lifts/${encodeURIComponent(resort.liftieSlug)}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        return fallback;
+      }
+      data = (await res.json()) as LiftieResponse;
+      liftieCache.set(resort.liftieSlug, { data, fetchedAt: Date.now() });
+    }
+
+    const stats = data.lifts?.stats;
+    const statusMap = data.lifts?.status;
+
+    if (stats || statusMap) {
+      const openCount =
+        stats?.open ??
+        (statusMap
+          ? Object.values(statusMap).filter((s) => s === 'open').length
+          : fallback.liftsOpen);
+
+      const totalCount = statusMap
+        ? Object.keys(statusMap).length
+        : (stats?.open ?? 0) +
+            (stats?.hold ?? 0) +
+            (stats?.scheduled ?? 0) +
+            (stats?.closed ?? 0) || resort.totalLifts;
+
+      const isOpen = data.open ?? openCount > 0;
+      const openRatio = totalCount > 0 ? openCount / totalCount : 0;
+      const trailsOpen = isOpen
+        ? Math.min(
+            resort.totalTrails,
+            Math.max(1, Math.round(resort.totalTrails * Math.max(openRatio, 0.25)))
+          )
+        : 0;
+
+      return {
+        ...fallback,
+        isOpen,
+        liftsOpen: openCount,
+        liftsTotal: totalCount,
+        trailsOpen,
+        trailsTotal: resort.totalTrails,
+        source: 'liftie-live',
+        updatedAt: data.timestamp?.lifts
+          ? new Date(data.timestamp.lifts).toISOString()
+          : new Date().toISOString(),
+      };
+    }
+
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
