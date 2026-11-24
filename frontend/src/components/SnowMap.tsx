@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import L from 'leaflet';
 import { MapContainer, Marker, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import type { RegionView, Resort, ResortForecast, UnitSystem } from '../types/resort';
 import { formatSnowShort, getSnowTier } from '../utils/units';
+
+type MapStyle = 'dark' | 'satellite' | 'terrain';
 
 interface SnowMapProps {
   resorts: Resort[];
@@ -138,6 +140,8 @@ export const SnowMap: React.FC<SnowMapProps> = ({
   units,
   onSelectResort,
 }) => {
+  const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
+
   const markers = useMemo(() => {
     return resorts.map((resort) => {
       const forecast = forecasts[resort.id];
@@ -148,21 +152,61 @@ export const SnowMap: React.FC<SnowMapProps> = ({
     });
   }, [resorts, forecasts, selectedResort, units]);
 
+  const tileConfig = {
+    dark: {
+      url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+      className: 'google-dark-tiles',
+    },
+    satellite: {
+      url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      className: '',
+    },
+    terrain: {
+      url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+      className: 'google-dark-tiles',
+    },
+  }[mapStyle];
+
   return (
     <div className="relative h-full w-full flex-1">
+      <div className="absolute bottom-5 left-4 z-[800] flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-900/90 p-1 shadow-xl backdrop-blur-md">
+        {(
+          [
+            { id: 'dark', label: 'Dark Map' },
+            { id: 'terrain', label: 'Terrain' },
+            { id: 'satellite', label: 'Satellite' },
+          ] as { id: MapStyle; label: string }[]
+        ).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setMapStyle(item.id)}
+            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+              mapStyle === item.id
+                ? 'bg-sky-500 text-slate-950 font-semibold'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <MapContainer
         center={REGION_VIEWS['north-america'].center}
         zoom={REGION_VIEWS['north-america'].zoom}
         minZoom={2}
-        maxZoom={14}
+        maxZoom={16}
         zoomControl={true}
         className="h-full w-full"
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
-          maxZoom={19}
+          key={mapStyle}
+          attribution="Map data &copy; Google"
+          url={tileConfig.url}
+          subdomains={['0', '1', '2', '3']}
+          className={tileConfig.className}
+          maxZoom={20}
         />
 
         <MapCameraController
