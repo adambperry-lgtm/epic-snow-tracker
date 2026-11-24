@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -254,6 +255,87 @@ async def health() -> dict[str, str]:
 async def get_public_config() -> dict[str, str]:
     carto_key = os.environ.get("CARTO_API_KEY") or os.environ.get("VITE_CARTO_API_KEY") or ""
     return {"cartoApiKey": carto_key}
+
+
+def _row_to_status_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "resortId": row["resort_id"],
+        "isOpen": bool(row["is_open"]),
+        "liftsOpen": row["lifts_open"],
+        "liftsTotal": row["lifts_total"],
+        "trailsOpen": row["trails_open"],
+        "trailsTotal": row["trails_total"],
+        "baseDepthCm": row["base_depth_cm"],
+        "source": row["source"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+@app.get("/api/resorts/statuses")
+async def get_all_resort_statuses() -> JSONResponse:
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT resort_id, is_open, lifts_open, lifts_total,
+                   trails_open, trails_total, base_depth_cm, source, updated_at
+            FROM resort_status
+            """
+        ).fetchall()
+    return JSONResponse(content={r["resort_id"]: _row_to_status_dict(r) for r in rows})
+
+
+@app.post("/api/resorts/sync")
+async def sync_all_onthesnow_statuses() -> JSONResponse:
+    sem = asyncio.Semaphore(8)
+
+    async def fetch_one(client: httpx.AsyncClient, resort_id: str, ots_path: str) -> None:
+        async with sem:
+            try:
+                resp = await client.get(f"{ONTHESNOW_BASE_URL}/{ots_path}/skireport")
+                if resp.status_code != 200:
+                    return
+                parsed = parse_onthesnow_html(resp.text)
+                if parsed is None:
+                    return
+                now_iso = datetime.now(timezone.utc).isoformat()
+                with get_db_connection() as conn:
+                    existing = conn.execute(
+                        "SELECT source, base_depth_cm FROM resort_status WHERE resort_id = ?",
+                        (resort_id,),
+                    ).fetchone()
+                # Preserve manual db-synced overrides
+                if existing and existing["source"] == "db-synced":
+                    return
+                upsert_resort_status(
+                    resort_id=resort_id,
+                    is_open=parsed["isOpen"],
+                    lifts_open=parsed["liftsOpen"],
+                    lifts_total=parsed["liftsTotal"],
+                    trails_open=parsed["trailsOpen"],
+                    trails_total=parsed["trailsTotal"],
+                    base_depth_cm=existing["base_depth_cm"] if existing else 0,
+                    source="onthesnow-live",
+                    updated_at=now_iso,
+                )
+            except httpx.RequestError:
+                return
+
+    async with httpx.AsyncClient(
+        timeout=7.0,
+        follow_redirects=True,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    ) as client:
+        await asyncio.gather(
+            *(fetch_one(client, rid, path) for rid, path in ONTHESNOW_PATHS.items())
+        )
+
+    return await get_all_resort_statuses()
 
 
 @app.get("/api/resorts/{resort_id}/status")

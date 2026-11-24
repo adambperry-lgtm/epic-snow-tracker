@@ -291,3 +291,61 @@ export async function saveResortStatus(
     source: 'db-synced',
   };
 }
+
+function normalizeStatusMap(
+  raw: Record<string, ResortStatus>,
+  resorts: Resort[],
+  forecasts: Record<string, ResortForecast>
+): Record<string, ResortStatus> {
+  const result: Record<string, ResortStatus> = {};
+  for (const resort of resorts) {
+    const fallback = getSeededResortStatus(resort, forecasts[resort.id]);
+    const saved = raw[resort.id];
+    if (saved) {
+      result[resort.id] = {
+        ...saved,
+        liftsTotal: saved.liftsTotal > 0 ? saved.liftsTotal : resort.totalLifts,
+        trailsTotal: saved.trailsTotal > 0 ? saved.trailsTotal : resort.totalTrails,
+        baseDepthCm:
+          saved.baseDepthCm > 0
+            ? saved.baseDepthCm
+            : saved.isOpen
+            ? fallback.baseDepthCm
+            : forecasts[resort.id]?.snowDepthCm ?? 0,
+        snow24hCm: fallback.snow24hCm,
+        snow7dCm: fallback.snow7dCm,
+      };
+    } else {
+      result[resort.id] = fallback;
+    }
+  }
+  return result;
+}
+
+export async function fetchAllResortStatuses(
+  resorts: Resort[],
+  forecasts: Record<string, ResortForecast>
+): Promise<Record<string, ResortStatus>> {
+  try {
+    const res = await fetch('/api/resorts/statuses');
+    if (res.ok) {
+      const raw = (await res.json()) as Record<string, ResortStatus>;
+      return normalizeStatusMap(raw, resorts, forecasts);
+    }
+  } catch {
+    // Fall back to seeded map
+  }
+  return normalizeStatusMap({}, resorts, forecasts);
+}
+
+export async function syncAllResortStatuses(
+  resorts: Resort[],
+  forecasts: Record<string, ResortForecast>
+): Promise<Record<string, ResortStatus>> {
+  const res = await fetch('/api/resorts/sync', { method: 'POST' });
+  if (!res.ok) {
+    throw new Error(`Sync failed (HTTP ${res.status})`);
+  }
+  const raw = (await res.json()) as Record<string, ResortStatus>;
+  return normalizeStatusMap(raw, resorts, forecasts);
+}

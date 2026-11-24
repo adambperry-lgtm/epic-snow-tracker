@@ -13,17 +13,26 @@ import {
   getCacheAgeMinutes,
 } from './services/weatherService';
 import {
+  fetchAllResortStatuses,
   fetchResortStatus,
   getSeededResortStatus,
   saveResortStatus,
+  syncAllResortStatuses,
   type ResortStatusUpdateInput,
 } from './services/resortStatusService';
 import { Navbar } from './components/Navbar';
-import { FilterBar, type MinSnowFilter, type PassFilter } from './components/FilterBar';
+import {
+  FilterBar,
+  type MinSnowFilter,
+  type PassFilter,
+  type ViewMode,
+} from './components/FilterBar';
 import { SnowMap } from './components/SnowMap';
+import { ResortListView } from './components/ResortListView';
 import { ResortDrawer } from './components/ResortDrawer';
 
 export function App() {
+  const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [regionView, setRegionView] = useState<RegionView>('north-america');
   const [intlFocus, setIntlFocus] = useState<'europe' | 'japan'>('europe');
   const [units, setUnits] = useState<UnitSystem>('imperial');
@@ -33,6 +42,8 @@ export function App() {
   const [minSnowCm, setMinSnowCm] = useState<MinSnowFilter>(0);
 
   const [forecasts, setForecasts] = useState<Record<string, ResortForecast>>({});
+  const [allStatuses, setAllStatuses] = useState<Record<string, ResortStatus>>({});
+  const [isSyncingStatuses, setIsSyncingStatuses] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [cacheAgeMinutes, setCacheAgeMinutes] = useState<number | null>(null);
 
@@ -59,6 +70,32 @@ export function App() {
     loadForecasts(false);
   }, [loadForecasts]);
 
+  // Load bulk statuses for list view & map tooltips whenever forecasts update
+  useEffect(() => {
+    let cancelled = false;
+    fetchAllResortStatuses(RESORTS, forecasts).then((map) => {
+      if (!cancelled) {
+        setAllStatuses(map);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [forecasts]);
+
+  const handleSyncAllStatuses = useCallback(async () => {
+    setIsSyncingStatuses(true);
+    try {
+      const updated = await syncAllResortStatuses(RESORTS, forecasts);
+      setAllStatuses(updated);
+      if (selectedResort && updated[selectedResort.id]) {
+        setResortStatus(updated[selectedResort.id]);
+      }
+    } finally {
+      setIsSyncingStatuses(false);
+    }
+  }, [forecasts, selectedResort]);
+
   // Reset sub-region filter when switching between North America and Europe & Japan
   const handleRegionChange = (view: RegionView) => {
     setRegionView(view);
@@ -71,7 +108,7 @@ export function App() {
     setSelectedSubRegion('all');
   };
 
-  // Load Liftie or seeded status whenever a resort is selected
+  // Load live OnTheSnow / DB / Liftie status whenever a resort is selected
   useEffect(() => {
     if (!selectedResort) {
       setResortStatus(null);
@@ -80,13 +117,16 @@ export function App() {
 
     let cancelled = false;
     const forecast = forecasts[selectedResort.id];
-    // Set seeded status immediately for instant UI feedback
-    setResortStatus(getSeededResortStatus(selectedResort, forecast));
-    setIsLoadingStatus(Boolean(selectedResort.liftieSlug));
+    setResortStatus(
+      allStatuses[selectedResort.id] ??
+        getSeededResortStatus(selectedResort, forecast)
+    );
+    setIsLoadingStatus(true);
 
     fetchResortStatus(selectedResort, forecast).then((status) => {
       if (!cancelled) {
         setResortStatus(status);
+        setAllStatuses((prev) => ({ ...prev, [selectedResort.id]: status }));
         setIsLoadingStatus(false);
       }
     });
@@ -107,7 +147,6 @@ export function App() {
       }
       setSelectedResort(resort);
       if (fly) {
-        // Delay slightly if regionView changed so map camera controller doesn't override
         setTimeout(() => {
           setFlyToTarget({ resort, timestamp: Date.now() });
         }, 50);
@@ -163,6 +202,8 @@ export function App() {
       />
 
       <FilterBar
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         regionView={regionView}
         intlFocus={intlFocus}
         onIntlFocusChange={handleIntlFocusChange}
@@ -179,16 +220,29 @@ export function App() {
       />
 
       <main className="relative flex flex-1 overflow-hidden">
-        <SnowMap
-          resorts={filteredResorts}
-          forecasts={forecasts}
-          selectedResort={selectedResort}
-          flyToTarget={flyToTarget}
-          regionView={regionView}
-          intlFocus={intlFocus}
-          units={units}
-          onSelectResort={(r) => handleSelectResort(r, true)}
-        />
+        {viewMode === 'map' ? (
+          <SnowMap
+            resorts={filteredResorts}
+            forecasts={forecasts}
+            selectedResort={selectedResort}
+            flyToTarget={flyToTarget}
+            regionView={regionView}
+            intlFocus={intlFocus}
+            units={units}
+            onSelectResort={(r) => handleSelectResort(r, true)}
+          />
+        ) : (
+          <ResortListView
+            resorts={filteredResorts}
+            forecasts={forecasts}
+            statuses={allStatuses}
+            selectedResort={selectedResort}
+            units={units}
+            isSyncingStatuses={isSyncingStatuses}
+            onSyncStatuses={handleSyncAllStatuses}
+            onSelectResort={(r) => handleSelectResort(r, false)}
+          />
+        )}
 
         <ResortDrawer
           resort={selectedResort}
@@ -206,6 +260,7 @@ export function App() {
               forecasts[resortId]
             );
             setResortStatus(updated);
+            setAllStatuses((prev) => ({ ...prev, [resortId]: updated }));
           }}
           onClose={() => setSelectedResort(null)}
         />

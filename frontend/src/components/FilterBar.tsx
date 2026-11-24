@@ -1,5 +1,5 @@
 import React from 'react';
-import { Filter, Snowflake } from 'lucide-react';
+import { Filter, List, Map as MapIcon, Snowflake } from 'lucide-react';
 import type {
   PassTier,
   RegionView,
@@ -9,8 +9,11 @@ import type {
 
 export type PassFilter = 'all' | PassTier;
 export type MinSnowFilter = 0 | 2.5 | 7.5 | 14; // in cm (0", ~1", ~3", ~6")
+export type ViewMode = 'map' | 'list';
 
 interface FilterBarProps {
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
   regionView: RegionView;
   intlFocus: 'europe' | 'japan';
   onIntlFocusChange: (focus: 'europe' | 'japan') => void;
@@ -27,6 +30,8 @@ interface FilterBarProps {
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({
+  viewMode,
+  onViewModeChange,
   regionView,
   intlFocus,
   onIntlFocusChange,
@@ -179,6 +184,36 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         <span className="rounded-md bg-slate-800/80 px-2 py-0.5 font-mono-tabular text-slate-300">
           {visibleCount} / {totalInRegion} resorts
         </span>
+
+        {/* Map / List Switcher */}
+        <div className="flex items-center rounded-lg border border-slate-700/80 bg-slate-900 p-0.5">
+          <button
+            id="view-mode-map"
+            type="button"
+            onClick={() => onViewModeChange('map')}
+            className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+              viewMode === 'map'
+                ? 'bg-sky-500 text-slate-950'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MapIcon className="h-3.5 w-3.5" />
+            <span>Map</span>
+          </button>
+          <button
+            id="view-mode-list"
+            type="button"
+            onClick={() => onViewModeChange('list')}
+            className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+              viewMode === 'list'
+                ? 'bg-sky-500 text-slate-950'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <List className="h-3.5 w-3.5" />
+            <span>List</span>
+          </button>
+        </div>
       </div>
     </div>
   );
