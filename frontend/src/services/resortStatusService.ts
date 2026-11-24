@@ -157,16 +157,17 @@ export async function fetchResortStatus(
 ): Promise<ResortStatus> {
   const fallback = getSeededResortStatus(resort, forecast);
 
-  // 1. Check persistent SQLite DB override
+  // 1. Check backend live OnTheSnow / persistent SQLite DB status
   try {
     const dbRes = await fetch(`/api/resorts/${encodeURIComponent(resort.id)}/status`);
     if (dbRes.ok) {
       const saved = (await dbRes.json()) as ResortStatus;
       return {
         ...saved,
+        baseDepthCm:
+          saved.baseDepthCm > 0 ? saved.baseDepthCm : fallback.baseDepthCm,
         snow24hCm: fallback.snow24hCm,
         snow7dCm: fallback.snow7dCm,
-        source: 'db-synced',
       };
     }
   } catch {

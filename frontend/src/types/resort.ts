@@ -69,6 +69,6 @@ export interface ResortStatus {
   baseDepthCm: number;
   snow24hCm: number;
   snow7dCm: number;
-  source: 'liftie-live' | 'db-synced' | 'seeded';
+  source: 'onthesnow-live' | 'liftie-live' | 'db-synced' | 'seeded';
   updatedAt: string;
 }

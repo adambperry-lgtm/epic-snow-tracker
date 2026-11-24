@@ -122,6 +122,8 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
 
   const sourceLabel = isLoadingStatus
     ? 'Checking live status…'
+    : status?.source === 'onthesnow-live'
+    ? 'Live (OnTheSnow)'
     : status?.source === 'liftie-live'
     ? 'Live via Liftie'
     : status?.source === 'db-synced'
@@ -251,7 +253,9 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
               <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
                 <Radio
                   className={`h-3 w-3 ${
-                    status?.source === 'liftie-live' || status?.source === 'db-synced'
+                    status?.source === 'onthesnow-live' ||
+                    status?.source === 'liftie-live' ||
+                    status?.source === 'db-synced'
                       ? 'text-emerald-400'
                       : 'text-slate-500'
                   }`}
