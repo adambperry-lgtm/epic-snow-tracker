@@ -4,7 +4,7 @@ import { MapContainer, Marker, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { RegionView, Resort, ResortForecast, UnitSystem } from '../types/resort';
 import { formatSnowShort, getSnowTier } from '../utils/units';
 
-type MapStyle = 'dark' | 'terrain' | 'satellite';
+type MapStyle = 'carto-dark' | 'dark' | 'terrain' | 'satellite';
 
 interface SnowMapProps {
   resorts: Resort[];
@@ -141,6 +141,21 @@ export const SnowMap: React.FC<SnowMapProps> = ({
   onSelectResort,
 }) => {
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
+  const [cartoApiKey, setCartoApiKey] = useState<string>(
+    import.meta.env.VITE_CARTO_API_KEY || ''
+  );
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((cfg) => {
+        if (cfg?.cartoApiKey) {
+          setCartoApiKey(cfg.cartoApiKey);
+          setMapStyle('carto-dark');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const markers = useMemo(() => {
     return resorts.map((resort) => {
@@ -152,7 +167,18 @@ export const SnowMap: React.FC<SnowMapProps> = ({
     });
   }, [resorts, forecasts, selectedResort, units]);
 
+  const cartoUrl = cartoApiKey
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${encodeURIComponent(cartoApiKey)}`
+    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
   const tileConfig = {
+    'carto-dark': {
+      url: cartoUrl,
+      subdomains: ['a', 'b', 'c', 'd'],
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      className: '',
+    },
     dark: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
       subdomains: ['server'],
@@ -178,7 +204,10 @@ export const SnowMap: React.FC<SnowMapProps> = ({
       <div className="absolute bottom-5 left-4 z-[800] flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-900/90 p-1 shadow-xl backdrop-blur-md">
         {(
           [
-            { id: 'dark', label: 'Dark Map' },
+            ...(cartoApiKey
+              ? [{ id: 'carto-dark' as MapStyle, label: 'CARTO Dark' }]
+              : []),
+            { id: 'dark', label: 'Esri Dark' },
             { id: 'terrain', label: 'Terrain' },
             { id: 'satellite', label: 'Satellite' },
           ] as { id: MapStyle; label: string }[]
@@ -207,7 +236,7 @@ export const SnowMap: React.FC<SnowMapProps> = ({
         className="h-full w-full"
       >
         <TileLayer
-          key={mapStyle}
+          key={`${mapStyle}-${cartoApiKey ? 'k' : 'nk'}`}
           attribution={tileConfig.attribution}
           url={tileConfig.url}
           subdomains={tileConfig.subdomains}
