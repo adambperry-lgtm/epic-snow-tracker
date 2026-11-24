@@ -242,6 +242,12 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "db_path": str(DB_PATH)}
 
 
+@app.get("/api/config")
+async def get_public_config() -> dict[str, str]:
+    carto_key = os.environ.get("CARTO_API_KEY") or os.environ.get("VITE_CARTO_API_KEY") or ""
+    return {"cartoApiKey": carto_key}
+
+
 @app.get("/api/resorts/{resort_id}/status")
 async def get_resort_status(resort_id: str) -> JSONResponse:
     with get_db_connection() as conn:

@@ -4,7 +4,7 @@ import { MapContainer, Marker, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { RegionView, Resort, ResortForecast, UnitSystem } from '../types/resort';
 import { formatSnowShort, getSnowTier } from '../utils/units';
 
-type MapStyle = 'carto-dark' | 'terrain' | 'satellite';
+type MapStyle = 'esri-dark' | 'carto-dark' | 'terrain' | 'satellite';
 
 interface SnowMapProps {
   resorts: Resort[];
@@ -140,7 +140,21 @@ export const SnowMap: React.FC<SnowMapProps> = ({
   units,
   onSelectResort,
 }) => {
-  const [mapStyle, setMapStyle] = useState<MapStyle>('carto-dark');
+  const [mapStyle, setMapStyle] = useState<MapStyle>('esri-dark');
+  const [cartoApiKey, setCartoApiKey] = useState<string>(
+    import.meta.env.VITE_CARTO_API_KEY || ''
+  );
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((cfg) => {
+        if (cfg?.cartoApiKey) {
+          setCartoApiKey(cfg.cartoApiKey);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const markers = useMemo(() => {
     return resorts.map((resort) => {
@@ -152,12 +166,19 @@ export const SnowMap: React.FC<SnowMapProps> = ({
     });
   }, [resorts, forecasts, selectedResort, units]);
 
-  const cartoApiKey =
-    import.meta.env.VITE_CARTO_API_KEY || 'cb1_5euq_1_abdf6455168dba34dec359b7';
+  const cartoUrl = cartoApiKey
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${encodeURIComponent(cartoApiKey)}`
+    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
   const tileConfig = {
+    'esri-dark': {
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      subdomains: ['server'],
+      attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+      className: '',
+    },
     'carto-dark': {
-      url: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${cartoApiKey}`,
+      url: cartoUrl,
       subdomains: ['a', 'b', 'c', 'd'],
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
@@ -182,6 +203,7 @@ export const SnowMap: React.FC<SnowMapProps> = ({
       <div className="absolute bottom-5 left-4 z-[800] flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-900/90 p-1 shadow-xl backdrop-blur-md">
         {(
           [
+            { id: 'esri-dark', label: 'Esri Dark' },
             { id: 'carto-dark', label: 'CARTO Dark' },
             { id: 'terrain', label: 'Terrain' },
             { id: 'satellite', label: 'Satellite' },
@@ -211,13 +233,19 @@ export const SnowMap: React.FC<SnowMapProps> = ({
         className="h-full w-full"
       >
         <TileLayer
-          key={mapStyle}
+          key={`${mapStyle}-${cartoApiKey ? 'k' : 'nk'}`}
           attribution={tileConfig.attribution}
           url={tileConfig.url}
           subdomains={tileConfig.subdomains}
           className={tileConfig.className}
-          maxZoom={20}
+          maxZoom={mapStyle === 'esri-dark' ? 16 : 20}
         />
+        {mapStyle === 'esri-dark' && (
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={16}
+          />
+        )}
 
         <MapCameraController
           regionView={regionView}
