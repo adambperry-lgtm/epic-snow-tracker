@@ -1,6 +1,6 @@
 import type { DailyForecast, Resort, ResortForecast } from '../types/resort';
 
-const CACHE_KEY = 'epic_snow_tracker_forecasts_v2';
+const CACHE_KEY = 'epic_snow_tracker_forecasts_v3';
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const BATCH_SIZE = 25;
 
@@ -71,6 +71,7 @@ function parseOpenMeteoItem(resort: Resort, item: OpenMeteoDailyResponse): Resor
       fetchedAt: now,
       snowDepthCm,
       snowfall48hCm: 0,
+      snowfall5dCm: 0,
       snowfall7dCm: 0,
       snowfall24hCm: 0,
       daily: [],
@@ -109,11 +110,15 @@ function parseOpenMeteoItem(resort: Resort, item: OpenMeteoDailyResponse): Resor
   const snowfall48hCm =
     (upcomingDaily[0]?.snowfallCm ?? 0) + (upcomingDaily[1]?.snowfallCm ?? 0);
 
+  // 5-day forecasted snowfall = sum of next 5 days
+  const snowfall5dCm = upcomingDaily.reduce((acc, d) => acc + d.snowfallCm, 0);
+
   return {
     resortId: resort.id,
     fetchedAt: now,
     snowDepthCm,
     snowfall48hCm: Math.round(snowfall48hCm * 10) / 10,
+    snowfall5dCm: Math.round(snowfall5dCm * 10) / 10,
     snowfall7dCm: Math.round(snowfall7dCm * 10) / 10,
     snowfall24hCm: Math.round(snowfall24hCm * 10) / 10,
     daily: upcomingDaily,

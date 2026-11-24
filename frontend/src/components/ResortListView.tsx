@@ -22,7 +22,8 @@ export type SortKey =
   | 'lifts'
   | 'trails'
   | 'base'
-  | 'forecast';
+  | 'forecast'
+  | 'forecast5d';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -100,6 +101,9 @@ export const ResortListView: React.FC<ResortListViewProps> = ({
           break;
         case 'forecast':
           cmp = (fa?.snowfall48hCm ?? 0) - (fb?.snowfall48hCm ?? 0);
+          break;
+        case 'forecast5d':
+          cmp = (fa?.snowfall5dCm ?? 0) - (fb?.snowfall5dCm ?? 0);
           break;
       }
 
@@ -205,13 +209,23 @@ export const ResortListView: React.FC<ResortListViewProps> = ({
                   {renderSortIcon('forecast')}
                 </button>
               </th>
+              <th className="px-4 py-3 text-right">
+                <button
+                  type="button"
+                  onClick={() => handleSort('forecast5d')}
+                  className="inline-flex items-center gap-1.5 hover:text-white"
+                >
+                  5d Total
+                  {renderSortIcon('forecast5d')}
+                </button>
+              </th>
             </tr>
           </thead>
 
           <tbody className="divide-y divide-slate-800/70">
             {sortedResorts.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
                   No resorts match the current filters.
                 </td>
               </tr>
@@ -348,6 +362,21 @@ export const ResortListView: React.FC<ResortListViewProps> = ({
                         }`}
                       >
                         {forecast ? formatSnowShort(snow48Cm, units) : '--'}
+                      </span>
+                    </td>
+
+                    {/* 5d Forecast Total */}
+                    <td className="px-4 py-3 text-right">
+                      <span
+                        className={`inline-block min-w-[46px] rounded-md px-2 py-0.5 text-center font-mono-tabular text-xs font-bold ${
+                          (forecast?.snowfall5dCm ?? 0) >= 14
+                            ? 'bg-blue-500/25 text-blue-300 ring-1 ring-blue-400/40'
+                            : (forecast?.snowfall5dCm ?? 0) >= 1.25
+                            ? 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400/30'
+                            : 'bg-slate-800/80 text-slate-400'
+                        }`}
+                      >
+                        {forecast ? formatSnowShort(forecast.snowfall5dCm, units) : '--'}
                       </span>
                     </td>
                   </tr>

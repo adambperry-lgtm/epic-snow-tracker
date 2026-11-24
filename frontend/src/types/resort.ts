@@ -54,6 +54,7 @@ export interface ResortForecast {
   fetchedAt: number;
   snowDepthCm: number | null;
   snowfall48hCm: number;
+  snowfall5dCm: number;
   snowfall7dCm: number;
   snowfall24hCm: number;
   daily: DailyForecast[];

@@ -393,13 +393,20 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
 
         {/* Near-Term Snow Forecast (Next 5 Days) */}
         <section aria-labelledby="forecast-heading">
-          <div className="mb-2.5 flex items-center justify-between">
-            <h3
-              id="forecast-heading"
-              className="text-xs font-semibold uppercase tracking-wider text-slate-400"
-            >
-              5-Day Summit Forecast
-            </h3>
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3
+                id="forecast-heading"
+                className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+              >
+                5-Day Summit Forecast
+              </h3>
+              {forecast && (
+                <span className="rounded-md bg-cyan-500/15 px-2 py-0.5 font-mono-tabular text-[11px] font-bold text-cyan-300 ring-1 ring-cyan-500/30">
+                  Total: {formatSnow(forecast.snowfall5dCm, units)}
+                </span>
+              )}
+            </div>
             <span className="text-[11px] text-slate-500">
               Open-Meteo @ {formatElevation(resort.summitElevationFt, units)}
             </span>
