@@ -164,8 +164,14 @@ export async function fetchResortStatus(
       const saved = (await dbRes.json()) as ResortStatus;
       return {
         ...saved,
+        liftsTotal: saved.liftsTotal > 0 ? saved.liftsTotal : resort.totalLifts,
+        trailsTotal: saved.trailsTotal > 0 ? saved.trailsTotal : resort.totalTrails,
         baseDepthCm:
-          saved.baseDepthCm > 0 ? saved.baseDepthCm : fallback.baseDepthCm,
+          saved.baseDepthCm > 0
+            ? saved.baseDepthCm
+            : saved.isOpen
+            ? fallback.baseDepthCm
+            : forecast?.snowDepthCm ?? 0,
         snow24hCm: fallback.snow24hCm,
         snow7dCm: fallback.snow7dCm,
       };

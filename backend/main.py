@@ -150,6 +150,14 @@ def parse_onthesnow_html(html: str) -> dict[str, Any] | None:
     )
 
     if not lifts_match and not runs_match:
+        if re.search(r">\s*Closed\s*</span>|closed for the season", html, re.IGNORECASE):
+            return {
+                "isOpen": False,
+                "liftsOpen": 0,
+                "liftsTotal": 0,
+                "trailsOpen": 0,
+                "trailsTotal": 0,
+            }
         return None
 
     lifts_open = int(lifts_match.group(1)) if lifts_match else 0
