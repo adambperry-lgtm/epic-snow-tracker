@@ -87,7 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </div>
           <p className="hidden text-[11px] text-slate-400 md:block">
-            56 Epic Pass &amp; Partner Resorts · Live Summit Forecasts
+            68 Epic Pass &amp; Partner Mountains · Live Summit Forecasts
           </p>
         </div>
       </div>
@@ -139,7 +139,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'bg-slate-800 text-slate-400'
             }`}
           >
-            12
+            24
           </span>
         </button>
 
@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
-              Alps (10)
+              Alps (22)
             </button>
             <button
               id="jump-japan"
