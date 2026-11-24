@@ -1,6 +1,6 @@
 import type { DailyForecast, Resort, ResortForecast } from '../types/resort';
 
-const CACHE_KEY = 'epic_snow_tracker_forecasts_v1';
+const CACHE_KEY = 'epic_snow_tracker_forecasts_v2';
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const BATCH_SIZE = 25;
 
@@ -10,6 +10,9 @@ interface CachedForecastStore {
 }
 
 interface OpenMeteoDailyResponse {
+  current?: {
+    snow_depth?: number | null; // meters
+  };
   daily?: {
     time: string[];
     weather_code: (number | null)[];
@@ -58,11 +61,15 @@ function saveToCache(data: Record<string, ResortForecast>): void {
 function parseOpenMeteoItem(resort: Resort, item: OpenMeteoDailyResponse): ResortForecast {
   const dailyRaw = item.daily;
   const now = Date.now();
+  const rawSnowDepthM = item.current?.snow_depth;
+  const snowDepthCm =
+    typeof rawSnowDepthM === 'number' ? Math.round(rawSnowDepthM * 100) : null;
 
   if (!dailyRaw || !dailyRaw.time || dailyRaw.time.length === 0) {
     return {
       resortId: resort.id,
       fetchedAt: now,
+      snowDepthCm,
       snowfall48hCm: 0,
       snowfall7dCm: 0,
       snowfall24hCm: 0,
@@ -70,19 +77,23 @@ function parseOpenMeteoItem(resort: Resort, item: OpenMeteoDailyResponse): Resor
     };
   }
 
-  // With past_days=2 and forecast_days=5, index 0 = today-2, index 1 = today-1, index 2 = today
-  const pastOffset = dailyRaw.time.length >= 7 ? 2 : 0;
+  // With past_days=7 and forecast_days=5, indices 0..6 are the past 7 days,
+  // index 7 is today, and 8..11 are the next 4 days.
+  const pastDaysCount = Math.max(0, dailyRaw.time.length - 5);
 
-  const snowfall24hCm = dailyRaw.snowfall_sum[Math.max(0, pastOffset - 1)] ?? 0;
-  const snowfall7dCm = dailyRaw.snowfall_sum.reduce<number>(
-    (acc, val) => acc + (val ?? 0),
-    0
-  );
+  const snowfall24hCm =
+    pastDaysCount > 0 ? dailyRaw.snowfall_sum[pastDaysCount - 1] ?? 0 : 0;
 
-  // Next 5 days starting from today (index = pastOffset)
+  // Actual past 7-day snowfall (excludes future forecast)
+  let snowfall7dCm = 0;
+  for (let i = 0; i < pastDaysCount; i++) {
+    snowfall7dCm += dailyRaw.snowfall_sum[i] ?? 0;
+  }
+
+  // Next 5 days starting from today (index = pastDaysCount)
   const upcomingDaily: DailyForecast[] = [];
-  for (let i = pastOffset; i < dailyRaw.time.length && upcomingDaily.length < 5; i++) {
-    const idxFromToday = i - pastOffset;
+  for (let i = pastDaysCount; i < dailyRaw.time.length && upcomingDaily.length < 5; i++) {
+    const idxFromToday = i - pastDaysCount;
     upcomingDaily.push({
       date: dailyRaw.time[i],
       dayLabel: formatDayLabel(dailyRaw.time[i], idxFromToday),
@@ -101,6 +112,7 @@ function parseOpenMeteoItem(resort: Resort, item: OpenMeteoDailyResponse): Resor
   return {
     resortId: resort.id,
     fetchedAt: now,
+    snowDepthCm,
     snowfall48hCm: Math.round(snowfall48hCm * 10) / 10,
     snowfall7dCm: Math.round(snowfall7dCm * 10) / 10,
     snowfall24hCm: Math.round(snowfall24hCm * 10) / 10,
@@ -120,8 +132,9 @@ async function fetchBatch(resorts: Resort[]): Promise<Record<string, ResortForec
     `?latitude=${lats}` +
     `&longitude=${lngs}` +
     `&elevation=${elevs}` +
+    `&current=snow_depth` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,snowfall_sum,wind_speed_10m_max` +
-    `&past_days=2&forecast_days=5&timezone=auto`;
+    `&past_days=7&forecast_days=5&timezone=auto`;
 
   const response = await fetch(url);
   if (!response.ok) {

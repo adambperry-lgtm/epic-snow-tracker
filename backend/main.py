@@ -3,6 +3,7 @@ import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 LIFTIE_BASE_URL = "https://liftie.info/api/resort"
 CACHE_TTL_SECONDS = 15 * 60  # 15 minutes
@@ -49,6 +51,21 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS resort_status (
+                resort_id TEXT PRIMARY KEY,
+                is_open INTEGER NOT NULL,
+                lifts_open INTEGER NOT NULL,
+                lifts_total INTEGER NOT NULL,
+                trails_open INTEGER NOT NULL,
+                trails_total INTEGER NOT NULL,
+                base_depth_cm INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -59,6 +76,16 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Epic Snow Tracker API", lifespan=lifespan)
+
+
+class ResortStatusUpdate(BaseModel):
+    is_open: bool
+    lifts_open: int = Field(ge=0)
+    lifts_total: int = Field(ge=1)
+    trails_open: int = Field(ge=0)
+    trails_total: int = Field(ge=1)
+    base_depth_cm: int = Field(ge=0)
+    source: str = "db-synced"
 
 
 def read_cached_lift(slug: str) -> tuple[float, dict[str, Any]] | None:
@@ -93,6 +120,87 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "db_path": str(DB_PATH)}
 
 
+@app.get("/api/resorts/{resort_id}/status")
+async def get_resort_status(resort_id: str) -> JSONResponse:
+    with get_db_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT resort_id, is_open, lifts_open, lifts_total,
+                   trails_open, trails_total, base_depth_cm, source, updated_at
+            FROM resort_status
+            WHERE resort_id = ?
+            """,
+            (resort_id,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="No saved status for resort")
+
+    return JSONResponse(
+        content={
+            "resortId": row["resort_id"],
+            "isOpen": bool(row["is_open"]),
+            "liftsOpen": row["lifts_open"],
+            "liftsTotal": row["lifts_total"],
+            "trailsOpen": row["trails_open"],
+            "trailsTotal": row["trails_total"],
+            "baseDepthCm": row["base_depth_cm"],
+            "source": "db-synced",
+            "updatedAt": row["updated_at"],
+        }
+    )
+
+
+@app.put("/api/resorts/{resort_id}/status")
+async def put_resort_status(resort_id: str, body: ResortStatusUpdate) -> JSONResponse:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO resort_status (
+                resort_id, is_open, lifts_open, lifts_total,
+                trails_open, trails_total, base_depth_cm, source, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(resort_id) DO UPDATE SET
+                is_open = excluded.is_open,
+                lifts_open = excluded.lifts_open,
+                lifts_total = excluded.lifts_total,
+                trails_open = excluded.trails_open,
+                trails_total = excluded.trails_total,
+                base_depth_cm = excluded.base_depth_cm,
+                source = excluded.source,
+                updated_at = excluded.updated_at
+            """,
+            (
+                resort_id,
+                int(body.is_open),
+                min(body.lifts_open, body.lifts_total),
+                body.lifts_total,
+                min(body.trails_open, body.trails_total),
+                body.trails_total,
+                body.base_depth_cm,
+                body.source,
+                now_iso,
+            ),
+        )
+        conn.commit()
+
+    return JSONResponse(
+        content={
+            "resortId": resort_id,
+            "isOpen": body.is_open,
+            "liftsOpen": min(body.lifts_open, body.lifts_total),
+            "liftsTotal": body.lifts_total,
+            "trailsOpen": min(body.trails_open, body.trails_total),
+            "trailsTotal": body.trails_total,
+            "baseDepthCm": body.base_depth_cm,
+            "source": "db-synced",
+            "updatedAt": now_iso,
+        }
+    )
+
+
 @app.get("/api/lifts/{slug}")
 async def get_lift_status(slug: str) -> JSONResponse:
     now = time.time()
@@ -107,8 +215,12 @@ async def get_lift_status(slug: str) -> JSONResponse:
 
     url = f"{LIFTIE_BASE_URL}/{slug}"
     try:
-        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"Accept": "application/json"})
+        async with httpx.AsyncClient(
+            timeout=6.0,
+            follow_redirects=True,
+            headers={"User-Agent": "EpicSnowTracker/1.0", "Accept": "application/json"},
+        ) as client:
+            resp = await client.get(url)
     except httpx.RequestError as exc:
         if cached is not None:
             return JSONResponse(

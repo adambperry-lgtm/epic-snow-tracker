@@ -15,6 +15,8 @@ import {
 import {
   fetchResortStatus,
   getSeededResortStatus,
+  saveResortStatus,
+  type ResortStatusUpdateInput,
 } from './services/resortStatusService';
 import { Navbar } from './components/Navbar';
 import { FilterBar, type MinSnowFilter, type PassFilter } from './components/FilterBar';
@@ -197,6 +199,14 @@ export function App() {
           onUnitsToggle={() =>
             setUnits((prev) => (prev === 'imperial' ? 'metric' : 'imperial'))
           }
+          onSaveStatus={async (resortId: string, input: ResortStatusUpdateInput) => {
+            const updated = await saveResortStatus(
+              resortId,
+              input,
+              forecasts[resortId]
+            );
+            setResortStatus(updated);
+          }}
           onClose={() => setSelectedResort(null)}
         />
       </main>

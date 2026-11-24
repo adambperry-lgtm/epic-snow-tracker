@@ -52,6 +52,7 @@ export interface DailyForecast {
 export interface ResortForecast {
   resortId: string;
   fetchedAt: number;
+  snowDepthCm: number | null;
   snowfall48hCm: number;
   snowfall7dCm: number;
   snowfall24hCm: number;
@@ -68,6 +69,6 @@ export interface ResortStatus {
   baseDepthCm: number;
   snow24hCm: number;
   snow7dCm: number;
-  source: 'liftie-live' | 'seeded';
+  source: 'liftie-live' | 'db-synced' | 'seeded';
   updatedAt: string;
 }

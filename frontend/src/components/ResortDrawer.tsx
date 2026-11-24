@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Mountain,
@@ -11,6 +11,8 @@ import {
   Cloud,
   Sun,
   Radio,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import type {
   Resort,
@@ -24,6 +26,7 @@ import {
   formatTemp,
   formatWind,
 } from '../utils/units';
+import type { ResortStatusUpdateInput } from '../services/resortStatusService';
 
 interface ResortDrawerProps {
   resort: Resort | null;
@@ -32,6 +35,7 @@ interface ResortDrawerProps {
   isLoadingStatus: boolean;
   units: UnitSystem;
   onUnitsToggle: () => void;
+  onSaveStatus: (resortId: string, input: ResortStatusUpdateInput) => Promise<void>;
   onClose: () => void;
 }
 
@@ -55,8 +59,33 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
   isLoadingStatus,
   units,
   onUnitsToggle,
+  onSaveStatus,
   onClose,
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(true);
+  const [formLiftsOpen, setFormLiftsOpen] = useState(0);
+  const [formTrailsOpen, setFormTrailsOpen] = useState(0);
+  const [formBaseDepth, setFormBaseDepth] = useState(0);
+
+  useEffect(() => {
+    setIsEditing(false);
+  }, [resort?.id]);
+
+  useEffect(() => {
+    if (status) {
+      setFormOpen(status.isOpen);
+      setFormLiftsOpen(status.liftsOpen);
+      setFormTrailsOpen(status.trailsOpen);
+      setFormBaseDepth(
+        units === 'imperial'
+          ? Math.round(status.baseDepthCm / 2.54)
+          : status.baseDepthCm
+      );
+    }
+  }, [status, units]);
+
   if (!resort) return null;
 
   const liftsOpen = status?.liftsOpen ?? 0;
@@ -68,6 +97,36 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
   const trailsPct = trailsTotal > 0 ? Math.round((trailsOpen / trailsTotal) * 100) : 0;
 
   const isOpen = status?.isOpen ?? resort.typicalSeasonOpen;
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      const baseCm =
+        units === 'imperial'
+          ? Math.round(formBaseDepth * 2.54)
+          : Math.round(formBaseDepth);
+      await onSaveStatus(resort.id, {
+        isOpen: formOpen,
+        liftsOpen: Math.max(0, Math.min(formLiftsOpen, liftsTotal)),
+        liftsTotal,
+        trailsOpen: Math.max(0, Math.min(formTrailsOpen, trailsTotal)),
+        trailsTotal,
+        baseDepthCm: Math.max(0, baseCm),
+      });
+      setIsEditing(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const sourceLabel = isLoadingStatus
+    ? 'Checking live status…'
+    : status?.source === 'liftie-live'
+    ? 'Live via Liftie'
+    : status?.source === 'db-synced'
+    ? 'Synced (Volume DB)'
+    : 'Seasonal Estimate';
 
   return (
     <aside
@@ -85,7 +144,9 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
                   : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
               }`}
             >
-              {resort.accessType === 'unlimited' ? 'Epic Unlimited' : `Partner · ${resort.accessLabel}`}
+              {resort.accessType === 'unlimited'
+                ? 'Epic Unlimited'
+                : `Partner · ${resort.accessLabel}`}
             </span>
 
             <span
@@ -158,14 +219,14 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-              <div className="text-[11px] text-slate-400">24h Snow</div>
+              <div className="text-[11px] text-slate-400">Past 24h</div>
               <div className="mt-1 font-mono-tabular text-lg font-bold text-cyan-300">
                 {forecast ? formatSnow(forecast.snowfall24hCm, units) : '--'}
               </div>
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-              <div className="text-[11px] text-slate-400">7-Day Total</div>
+              <div className="text-[11px] text-slate-400">Past 7 Days</div>
               <div className="mt-1 font-mono-tabular text-lg font-bold text-sky-300">
                 {forecast ? formatSnow(forecast.snowfall7dCm, units) : '--'}
               </div>
@@ -178,64 +239,143 @@ export const ResortDrawer: React.FC<ResortDrawerProps> = ({
           aria-labelledby="terrain-counts-heading"
           className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
         >
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <h3
               id="terrain-counts-heading"
               className="text-xs font-semibold uppercase tracking-wider text-slate-400"
             >
               Terrain &amp; Lift Status
             </h3>
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
-              <Radio
-                className={`h-3 w-3 ${
-                  status?.source === 'liftie-live'
-                    ? 'text-emerald-400'
-                    : 'text-slate-500'
-                }`}
-              />
-              {isLoadingStatus
-                ? 'Checking Liftie…'
-                : status?.source === 'liftie-live'
-                ? 'Live via Liftie'
-                : 'Seeded Capacity'}
-            </span>
-          </div>
 
-          <div className="space-y-3.5">
-            {/* Open Lifts */}
-            <div>
-              <div className="mb-1.5 flex items-baseline justify-between text-xs">
-                <span className="font-medium text-slate-200">Open Lifts</span>
-                <span className="font-mono-tabular font-semibold text-white">
-                  {liftsOpen} / {liftsTotal}{' '}
-                  <span className="text-slate-400">Lifts Open ({liftsPct}%)</span>
-                </span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-sky-400 transition-all duration-500"
-                  style={{ width: `${liftsPct}%` }}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                <Radio
+                  className={`h-3 w-3 ${
+                    status?.source === 'liftie-live' || status?.source === 'db-synced'
+                      ? 'text-emerald-400'
+                      : 'text-slate-500'
+                  }`}
                 />
-              </div>
-            </div>
+                {sourceLabel}
+              </span>
 
-            {/* Open Trails */}
-            <div>
-              <div className="mb-1.5 flex items-baseline justify-between text-xs">
-                <span className="font-medium text-slate-200">Open Trails</span>
-                <span className="font-mono-tabular font-semibold text-white">
-                  {trailsOpen} / {trailsTotal}{' '}
-                  <span className="text-slate-400">Trails Open ({trailsPct}%)</span>
-                </span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-emerald-400 transition-all duration-500"
-                  style={{ width: `${trailsPct}%` }}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditing((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-slate-800/80 px-2 py-0.5 text-[11px] font-medium text-slate-300 hover:border-sky-500/60 hover:text-sky-300"
+              >
+                <Pencil className="h-2.5 w-2.5" />
+                {isEditing ? 'Cancel' : 'Edit'}
+              </button>
             </div>
           </div>
+
+          {isEditing ? (
+            <form onSubmit={handleSave} className="space-y-3 text-xs">
+              <div className="flex items-center justify-between rounded-lg bg-slate-800/60 px-3 py-2">
+                <span className="font-medium text-slate-200">Operating Status</span>
+                <button
+                  type="button"
+                  onClick={() => setFormOpen((v) => !v)}
+                  className={`rounded-md px-2.5 py-1 font-semibold ${
+                    formOpen
+                      ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+                      : 'bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  {formOpen ? 'Open' : 'Closed'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">
+                    Lifts (/{liftsTotal})
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={liftsTotal}
+                    value={formLiftsOpen}
+                    onChange={(e) => setFormLiftsOpen(Number(e.target.value))}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono-tabular text-white outline-none focus:border-sky-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">
+                    Trails (/{trailsTotal})
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={trailsTotal}
+                    value={formTrailsOpen}
+                    onChange={(e) => setFormTrailsOpen(Number(e.target.value))}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono-tabular text-white outline-none focus:border-sky-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">
+                    Base ({units === 'imperial' ? 'in' : 'cm'})
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formBaseDepth}
+                    onChange={(e) => setFormBaseDepth(Number(e.target.value))}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono-tabular text-white outline-none focus:border-sky-500"
+                  />
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-sky-500 py-1.5 font-semibold text-slate-950 transition-colors hover:bg-sky-400 disabled:opacity-50"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {isSaving ? 'Saving to Volume DB…' : 'Save to Persistent DB'}
+              </button>
+            </form>
+          ) : (
+            <div className="space-y-3.5">
+              {/* Open Lifts */}
+              <div>
+                <div className="mb-1.5 flex items-baseline justify-between text-xs">
+                  <span className="font-medium text-slate-200">Open Lifts</span>
+                  <span className="font-mono-tabular font-semibold text-white">
+                    {liftsOpen} / {liftsTotal}{' '}
+                    <span className="text-slate-400">Lifts Open ({liftsPct}%)</span>
+                  </span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                    style={{ width: `${liftsPct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Open Trails */}
+              <div>
+                <div className="mb-1.5 flex items-baseline justify-between text-xs">
+                  <span className="font-medium text-slate-200">Open Trails</span>
+                  <span className="font-mono-tabular font-semibold text-white">
+                    {trailsOpen} / {trailsTotal}{' '}
+                    <span className="text-slate-400">Trails Open ({trailsPct}%)</span>
+                  </span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                    style={{ width: `${trailsPct}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Near-Term Snow Forecast (Next 5 Days) */}

@@ -2,8 +2,7 @@ import type { Resort, ResortForecast, ResortStatus } from '../types/resort';
 
 /**
  * Seeded seasonal defaults for resorts not covered by Liftie API
- * (or as a fallback when Liftie is unreachable / CORS-restricted).
- * Clearly isolated here so a custom scraper or feed can be wired in later.
+ * or without a saved status in the persistent SQLite database.
  */
 interface SeededResortMetrics {
   isOpen: boolean;
@@ -119,12 +118,17 @@ export function getSeededResortStatus(
     ? Math.max(1, Math.round(resort.totalTrails * defaults.openTrailRatio))
     : 0;
 
-  // Blend in live Open-Meteo recent snow if available
   const snow24hCm = forecast?.snowfall24hCm ?? 0;
   const snow7dCm = forecast?.snowfall7dCm ?? 0;
-  const baseDepthCm = isOpen
-    ? Math.round(defaults.baseDepthCm + snow7dCm * 0.4)
-    : Math.round(snow7dCm * 0.3);
+
+  // Prefer live Open-Meteo snow_depth when non-zero; otherwise fall back to regional estimate
+  const liveSnowDepth = forecast?.snowDepthCm;
+  const baseDepthCm =
+    typeof liveSnowDepth === 'number' && liveSnowDepth > 0
+      ? liveSnowDepth
+      : isOpen
+      ? Math.round(defaults.baseDepthCm + snow7dCm * 0.4)
+      : Math.round(snow7dCm * 0.3);
 
   return {
     resortId: resort.id,
@@ -142,8 +146,10 @@ export function getSeededResortStatus(
 }
 
 /**
- * Fetches live lift counts from the open-source Liftie API for supported North American resorts.
- * Falls back cleanly to `getSeededResortStatus` if unsupported or unreachable.
+ * Fetches resort status with priority:
+ * 1. Persistent Railway SQLite DB (/api/resorts/{id}/status)
+ * 2. Live Liftie API proxy (/api/lifts/{slug})
+ * 3. Seeded seasonal fallback + live Open-Meteo snow totals
  */
 export async function fetchResortStatus(
   resort: Resort,
@@ -151,10 +157,27 @@ export async function fetchResortStatus(
 ): Promise<ResortStatus> {
   const fallback = getSeededResortStatus(resort, forecast);
 
+  // 1. Check persistent SQLite DB override
+  try {
+    const dbRes = await fetch(`/api/resorts/${encodeURIComponent(resort.id)}/status`);
+    if (dbRes.ok) {
+      const saved = (await dbRes.json()) as ResortStatus;
+      return {
+        ...saved,
+        snow24hCm: fallback.snow24hCm,
+        snow7dCm: fallback.snow7dCm,
+        source: 'db-synced',
+      };
+    }
+  } catch {
+    // Continue to Liftie / fallback
+  }
+
   if (!resort.liftieSlug) {
     return fallback;
   }
 
+  // 2. Try Liftie proxy
   try {
     const cached = liftieCache.get(resort.liftieSlug);
     let data: LiftieResponse;
@@ -220,4 +243,44 @@ export async function fetchResortStatus(
   } catch {
     return fallback;
   }
+}
+
+export interface ResortStatusUpdateInput {
+  isOpen: boolean;
+  liftsOpen: number;
+  liftsTotal: number;
+  trailsOpen: number;
+  trailsTotal: number;
+  baseDepthCm: number;
+}
+
+export async function saveResortStatus(
+  resortId: string,
+  input: ResortStatusUpdateInput,
+  forecast?: ResortForecast
+): Promise<ResortStatus> {
+  const res = await fetch(`/api/resorts/${encodeURIComponent(resortId)}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      is_open: input.isOpen,
+      lifts_open: input.liftsOpen,
+      lifts_total: input.liftsTotal,
+      trails_open: input.trailsOpen,
+      trails_total: input.trailsTotal,
+      base_depth_cm: input.baseDepthCm,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to save resort status (HTTP ${res.status})`);
+  }
+
+  const saved = (await res.json()) as ResortStatus;
+  return {
+    ...saved,
+    snow24hCm: forecast?.snowfall24hCm ?? 0,
+    snow7dCm: forecast?.snowfall7dCm ?? 0,
+    source: 'db-synced',
+  };
 }
