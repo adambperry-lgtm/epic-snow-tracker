@@ -4,7 +4,7 @@ import { MapContainer, Marker, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { RegionView, Resort, ResortForecast, UnitSystem } from '../types/resort';
 import { formatSnowShort, getSnowTier } from '../utils/units';
 
-type MapStyle = 'dark' | 'satellite' | 'terrain';
+type MapStyle = 'carto-dark' | 'terrain' | 'satellite';
 
 interface SnowMapProps {
   resorts: Resort[];
@@ -140,7 +140,7 @@ export const SnowMap: React.FC<SnowMapProps> = ({
   units,
   onSelectResort,
 }) => {
-  const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
+  const [mapStyle, setMapStyle] = useState<MapStyle>('carto-dark');
 
   const markers = useMemo(() => {
     return resorts.map((resort) => {
@@ -152,18 +152,28 @@ export const SnowMap: React.FC<SnowMapProps> = ({
     });
   }, [resorts, forecasts, selectedResort, units]);
 
+  const cartoApiKey =
+    import.meta.env.VITE_CARTO_API_KEY || 'cb1_5euq_1_abdf6455168dba34dec359b7';
+
   const tileConfig = {
-    dark: {
-      url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-      className: 'google-dark-tiles',
-    },
-    satellite: {
-      url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    'carto-dark': {
+      url: `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${cartoApiKey}`,
+      subdomains: ['a', 'b', 'c', 'd'],
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       className: '',
     },
     terrain: {
       url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+      subdomains: ['0', '1', '2', '3'],
+      attribution: 'Map data &copy; Google',
       className: 'google-dark-tiles',
+    },
+    satellite: {
+      url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      subdomains: ['0', '1', '2', '3'],
+      attribution: 'Map data &copy; Google',
+      className: '',
     },
   }[mapStyle];
 
@@ -172,7 +182,7 @@ export const SnowMap: React.FC<SnowMapProps> = ({
       <div className="absolute bottom-5 left-4 z-[800] flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-900/90 p-1 shadow-xl backdrop-blur-md">
         {(
           [
-            { id: 'dark', label: 'Dark Map' },
+            { id: 'carto-dark', label: 'CARTO Dark' },
             { id: 'terrain', label: 'Terrain' },
             { id: 'satellite', label: 'Satellite' },
           ] as { id: MapStyle; label: string }[]
@@ -202,9 +212,9 @@ export const SnowMap: React.FC<SnowMapProps> = ({
       >
         <TileLayer
           key={mapStyle}
-          attribution="Map data &copy; Google"
+          attribution={tileConfig.attribution}
           url={tileConfig.url}
-          subdomains={['0', '1', '2', '3']}
+          subdomains={tileConfig.subdomains}
           className={tileConfig.className}
           maxZoom={20}
         />
